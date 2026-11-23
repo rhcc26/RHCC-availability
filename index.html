@@ -15,5 +15,30 @@ async function deleteFixture(id){if(!confirm('Remove this fixture and all availa
 function renderAdmin(){if(profile.role!=='admin')return;const pending=profiles.filter(p=>p.approved===false);$('viewAdmin').innerHTML=`<p class="sub">Review registrations before granting access. Only approved players should be able to read club data; this must also be enforced by Supabase database policies.</p><div class="card"><h3>Awaiting approval (${pending.length})</h3>${pending.length?'': '<p class="sub">No pending registrations found.</p>'}${pending.map(p=>`<div class="row" style="padding:9px 0"><span>${safe(p.display_name||'Unnamed player')}</span><button class="btn" data-approve="${safe(p.id)}">Approve</button></div>`).join('')}</div><div class="card"><h3>Player management</h3><p class="hint">Players register using their own email address. To add someone, ask them to register; their request will appear above. Removing access revokes approval but does not delete their authentication account.</p>${profiles.filter(p=>p.id!==me.id&&p.approved!==false).map(p=>`<div class="row" style="padding:9px 0"><span>${safe(p.display_name||'Unnamed player')} <span class="pill">${safe(p.role)}</span></span><button class="btn secondary" data-revoke="${safe(p.id)}">Revoke access</button></div>`).join('')}</div>`;document.querySelectorAll('[data-approve]').forEach(b=>b.onclick=()=>setApproval(b.dataset.approve,true));document.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=()=>setApproval(b.dataset.revoke,false))}
 async function setApproval(id,approved){if(profile.role!=='admin'||id===me.id)return;if(!approved&&!confirm('Revoke this player’s access?'))return;msg('Updating approval…');const {error}=await db.rpc('admin_set_approval',{target_user:id,new_approved:approved});if(error){msg('Approval could not be updated: '+error.message,true);return}await refresh();msg(approved?'Player approved.':'Player access revoked.')}
 function renderProfile(){$('viewProfile').innerHTML=`<div class="card"><h3>Your details</h3><p class="sub">Email: ${safe(me.email)}</p><form id="profileForm"><label for="displayName">Name shown to captain</label><input id="displayName" required maxlength="80" value="${safe(profile.display_name||'')}"><p><button class="btn" type="submit">Save name</button></p></form></div>`;$('profileForm').onsubmit=async e=>{e.preventDefault();const {error}=await db.from('profiles').update({display_name:$('displayName').value.trim()}).eq('id',me.id);if(error){msg(error.message,true);return}await refresh();msg('Profile saved.')}}
-$('loginForm').onsubmit=async e=>{e.preventDefault();msg('Sending sign-in link…');const {error}=await db.auth.signInWithOtp({email:$('email').value.trim(),options:{emailRedirectTo:location.origin+location.pathname}});msg(error?error.message:'Check your email for your sign-in link.',!!error)};$('signout').onclick=()=>db.auth.signOut();document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;msg('');render()});init();
+$('loginForm').onsubmit=async e=>{
+  e.preventDefault();
+  const button=$('loginForm').querySelector('button[type=submit]');
+  button.disabled=true;
+  msg('Sending sign-in link…');
+  try{
+    if(!db)throw new Error('The login service has not been initialised. Please reload the page.');
+    const email=$('email').value.trim();
+    const {error}=await db.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+location.pathname}});
+    if(error){
+      const detail=[error.message,error.status?'HTTP '+error.status:'',error.code||''].filter(Boolean).join(' | ');
+      msg('Sign-in request failed: '+detail,true);
+      return;
+    }
+    msg('Check your email for your sign-in link.');
+  }catch(error){
+    console.error('RHCC sign-in connection error:',error);
+    const reason=error?.message||String(error);
+    const connection=/load failed|failed to fetch|networkerror|network request failed/i.test(reason);
+    msg(connection
+      ? 'Connection error: '+reason+'. The browser could not complete the request to Supabase. Please check that config.js uses the correct Supabase project URL, then try again.'
+      : 'Sign-in error: '+reason,true);
+  }finally{
+    button.disabled=false;
+  }
+};$('signout').onclick=()=>db.auth.signOut();document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;msg('');render()});init();
 </script></body></html>
